@@ -91,6 +91,7 @@ int main(int argc, char* argv[]) {
 
         for(int i = 0; i < size; i++){
             multiplication(A, x, delta, N/size + shift_new, N/size + shift_size, start_idx, N);
+            MPI_Barrier(MPI_COMM_WORLD);
             MPI_Sendrecv(x, N/size + 1, MPI_DOUBLE, (rank + 1) % size, 0, x_new, N/size + 1, MPI_DOUBLE, (rank - 1 + size) % size, 0, MPI_COMM_WORLD, 0);
             changer = x;
             x = x_new;
@@ -108,6 +109,7 @@ int main(int argc, char* argv[]) {
         }
 
         norm_delta = norm(delta, N/size + shift_size);
+        MPI_Barrier(MPI_COMM_WORLD);
         MPI_Allreduce(&norm_delta, &c, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         printf("%f\n", c);
         if(c/norm_b < EPS*EPS)
@@ -115,6 +117,7 @@ int main(int argc, char* argv[]) {
     }
 
     double* result = (double*)malloc(N*sizeof(double));
+    MPI_Barrier(MPI_COMM_WORLD);
     MPI_Allgatherv(x, N/size + shift_size, MPI_DOUBLE, result, lengths, 
                    positions, MPI_DOUBLE, MPI_COMM_WORLD);
 

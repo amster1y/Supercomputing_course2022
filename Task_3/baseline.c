@@ -3,7 +3,7 @@
 #include <math.h>
 #include <time.h>
 
-const int N = 10000;
+const int N = 20000;
 const double EPS = 1e-10;
 const double TAU = 0.01;
 
