@@ -4,29 +4,30 @@
 #include <mpi.h>
 #include <string.h>
 
-const int N = 20000;
-const double EPS = 1e-10;
+const int N = 5000;
+const double EPS = 1e-7;
 const double TAU = 0.00001;
 
 
 double norm(double* v, int N) {
     double result = 0;
-    for (int i = 0; i < N; i++)
+    int i;
+    for (i = 0; i < N; i++)
         result += v[i]*v[i];
     return result;
 }
 
 
 double* multiplication(double* matrix, double* vector, double* result, int cols, int rows, int shift, int N){
-    for (int i = 0; i < rows; i++)
-        for (int j = 0; j < cols; j++)
+    int i, j;
+    for (i = 0; i < rows; i++)
+        for (j = 0; j < cols; j++)
             result[i] += matrix[i*N + (j + shift)]*vector[j];
     return result;
 };
 
 
 int main(int argc, char* argv[]) {
-    double start_time = MPI_Wtime();
     MPI_Init (&argc, &argv);
     int rank, size;
     MPI_Comm_rank (MPI_COMM_WORLD, &rank);
@@ -37,31 +38,30 @@ int main(int argc, char* argv[]) {
     double* A = (double*)malloc(N*(N/size + shift_size)*sizeof(double));
     double* b = (double*)malloc((N/size + shift_size)*sizeof(double));
     double* x = (double*)malloc((N/size + 1)*sizeof(double));
-    double* x_new = (double*)malloc((N/size + 1)*sizeof(double));
-
-    memset(x, 0, (N/size + 1)*sizeof(double));
-    memset(x_new, 0, (N/size + 1)*sizeof(double));
 
     int start_idx = 0;
+    int i, j;
 
-    for(int i = 0; i < rank; i++)
+    for(i = 0; i < rank; i++)
         start_idx += N/size + (i < N % size ? 1 : 0);
+
+    double start_time = MPI_Wtime();
 
     int* lengths = (int*)malloc(size*sizeof(int));
     memset(lengths, 0, size*sizeof(int));
-    for (int i = 0; i < size; i++)
+    for (i = 0; i < size; i++)
         lengths[i] = N/size + (i < N % size ? 1 : 0);
 
     int* positions = (int*)malloc(size*sizeof(int));
     memset(positions, 0, size*sizeof(int));
     int pos = 0;
-    for (int i = 1; i < size; i++){
+    for (i = 1; i < size; i++){
         pos += N/size + ((i - 1) < N % size ? 1 : 0);
         positions[i] = pos;
     }
 
-    for (int i = 0; i < N/size + shift_size; i++) {
-        for (int j = 0; j < N; j++) {
+    for (i = 0; i < N/size + shift_size; i++) {
+        for (j = 0; j < N; j++) {
             if ((i*N + j - start_idx) % (N+1) == 0) 
                 A[i*N + j] = 2;
             else
@@ -69,7 +69,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    for(int i = 0; i < N/size + shift_size; i++)
+    for(i = 0; i < N/size + shift_size; i++)
         b[i] = N + 1;
 
     double norm_b_thread = norm(b, N/size + shift_size);
@@ -81,29 +81,27 @@ int main(int argc, char* argv[]) {
     double c;
     int shift_new = 0;
     int rank_new = 0;
-    double* changer;
-    double* delta = (double*)malloc((N/size + shift_size)*sizeof(double));
+    double* delta = (double*)malloc((N/size + 1)*sizeof(double));
+
+    memset(x, 0, (N/size + 1)*sizeof(double));
 
     for(;;) {
-        memset(delta, 0, (N/size + shift_size)*sizeof(double));
+        memset(delta, 0, (N/size + 1)*sizeof(double));
 
         shift_new = shift_size;
 
-        for(int i = 0; i < size; i++){
+        for(i = 0; i < size; i++){
             multiplication(A, x, delta, N/size + shift_new, N/size + shift_size, start_idx, N);
             MPI_Barrier(MPI_COMM_WORLD);
-            MPI_Sendrecv(x, N/size + 1, MPI_DOUBLE, (rank + 1) % size, 0, x_new, N/size + 1, MPI_DOUBLE, (rank - 1 + size) % size, 0, MPI_COMM_WORLD, 0);
-            changer = x;
-            x = x_new;
-            x_new = changer;
+            MPI_Sendrecv_replace(x, N/size + 1, MPI_DOUBLE, (rank + 1) % size, 0, (rank - 1 + size) % size, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);            
             shift_new = ((rank - 1 - i + size) % size < N % size) ? 1 : 0;
             rank_new = (rank - 1 - i + size) % size;
             start_idx = 0;
-            for(int j = 0; j < rank_new; j++)
+            for(j = 0; j < rank_new; j++)
                 start_idx += N/size + (j < N % size ? 1 : 0);
         }
 
-        for (int i = 0; i < N/size + shift_size; i++) {
+        for (i = 0; i < N/size + shift_size; i++) {
             delta[i] -= b[i];
             x[i] = x[i] - TAU*delta[i];
         }
@@ -111,7 +109,7 @@ int main(int argc, char* argv[]) {
         norm_delta = norm(delta, N/size + shift_size);
         MPI_Barrier(MPI_COMM_WORLD);
         MPI_Allreduce(&norm_delta, &c, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        printf("%f\n", c);
+        // printf("%f\n", c);
         if(c/norm_b < EPS*EPS)
             break;
     }
@@ -139,7 +137,6 @@ int main(int argc, char* argv[]) {
     free(b);
     free(delta);
     free(x);
-    free(x_new);
     free(lengths);
     free(positions);
     free(result);
